@@ -45,6 +45,9 @@ function get_kernel_max()
   driver_path=linux-${KERNEL}/drivers/net/wireless/intel/iwlwifi
   [ -d linux-${KERNEL}/drivers/net/wireless/intel/iwlwifi ] || driver_path=linux-${KERNEL}/drivers/net/wireless/iwlwifi
 
+  # Config files moved to cfg subdir in 4.13-rc1
+  [ -d ${driver_path}/cfg ] && driver_path+=/cfg
+
   while read -r filename; do
     while read -r device; do
       [ -n "${device}" ] || continue
@@ -59,7 +62,7 @@ function get_kernel_max()
 
       echo "${device} ${prefix} ${kernel_max}"
     done <<< "$(grep "#define IWL.*_UCODE_API_MAX" ${filename} | cut -d' ' -f2)"
-  done <<< "$(ls -1 ${driver_path}/iwl-*.c)"
+  done <<< "$(ls -1 ${driver_path}/*.c)"
 }
 
 function get_firmwares()
@@ -82,18 +85,25 @@ function sync_max_firmware()
   local device="$1" prefix="$2" kernel_max="$3"
   local linux_fw="$(get_firmwares linux-firmware "${prefix}")"
   local thisrepo="$(get_firmwares ../firmware "${prefix}")"
-  local firmware keepver
+  local firmware keepver md5old md5new
 
   [ -n "${DEBUG}" ] && printf "DEBUG: %-6s %-15s kernel max=%-2s linux fw=%s this repo=%s\n" "${device}" "${prefix}" "${kernel_max}" "${linux_fw:0:-1}" "${thisrepo:0:-1}" >&2
 
-  echo "${prefix:0:-1} - kernel max is ${kernel_max}, linux-firmware max is ${linux_fw%%,*}, this repo max is ${thisrepo%%,*}"
+  printf "%-15s - kernel max is %2d, linux-firmware max is %2d, this repo max is %2d\n" "${prefix:0:-1}" ${kernel_max} ${linux_fw%%,*} ${thisrepo%%,*}
 
   for firmware in ${linux_fw//,/ }; do
     if [ ${firmware} -le ${kernel_max} ]; then
       keepver=${firmware}
       if [ ! -f ../firmware/${prefix}${firmware}.ucode ]; then
-        echo "  Adding new version: ${prefix}${firmware}.ucode"
+        echo "  Adding new version  : ${prefix}${firmware}.ucode"
         [ -z "${DRYRUN}" ] && cp linux-firmware/${prefix}${firmware}.ucode ../firmware
+      else
+        md5old="$(md5sum ../firmware/${prefix}${firmware}.ucode | awk '{print $1}')"
+        md5new="$(md5sum linux-firmware/${prefix}${firmware}.ucode | awk '{print $1}')"
+        if [ "${md5old}" != "${md5new}" ]; then
+          echo "  Updating existing version: ${prefix}${firmware}.ucode"
+          [ -z "${DRYRUN}" ] && cp linux-firmware/${prefix}${firmware}.ucode ../firmware
+        fi
       fi
       break
     fi
@@ -106,7 +116,7 @@ function sync_max_firmware()
       echo "  Removing incompatible version: ${prefix}${firmware}.ucode"
       [ -z "${DRYRUN}" ] && rm -f ../firmware/${prefix}${firmware}.ucode
     elif [ -n "${keepver}" ]; then
-      echo "  Removing excess/obsolete version: ${prefix}${firmware}.ucode"
+      echo "  Removing old version: ${prefix}${firmware}.ucode"
       [ -z "${DRYRUN}" ] && rm -f ../firmware/${prefix}${firmware}.ucode
     else
       echo "  Unable to identify suitable max version - keeping existing firmware files"
@@ -119,21 +129,31 @@ cd $TMPDIR || exit
 
 # unpack kernel
 echo "Unpacking kernel ${KERNEL}..."
-if [[ ${KERNEL} =~ .*-rc[0-9]* ]]; then
-  [ -d linux-${KERNEL} ] || wget -q --show-progress "http://www.kernel.org/pub/linux/kernel/v4.x/testing/linux-${KERNEL}.tar.xz" -O- | tar xJf -
-else
-  [ -d linux-${KERNEL} ] || wget -q --show-progress "http://www.kernel.org/pub/linux/kernel/v4.x/linux-${KERNEL}.tar.xz" -O- | tar xJf -
+if [ ! -d linux-${KERNEL} ] ; then
+  if [[ ${KERNEL} =~ .*-rc[0-9]* ]]; then
+    url="http://www.kernel.org/pub/linux/kernel/v4.x/testing/linux-${KERNEL}.tar.xz"
+    if ! curl --fail --head --location ${url} &>/dev/null; then
+      url="https://git.kernel.org/torvalds/t/linux-${KERNEL}.tar.gz"
+    fi
+  else
+    url="http://www.kernel.org/pub/linux/kernel/v4.x/linux-${KERNEL}.tar.xz"
+  fi
+  if [[ ${url} =~ .*.gz ]]; then
+    wget -q --show-progress "${url}" -O- | tar xzf -
+  else
+    wget -q --show-progress "${url}" -O- | tar xJf -
+  fi
+  [ $? -eq 0 ] || exit 1
 fi
-[ $? -eq 0 ] || exit 1
 
 # get kernel firmware
-echo "Cloning latest linux-firmware..."
-[ -d linux-firmware ] || git clone git://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git --depth=1 || exit 1
+echo "Cloning latest linux-firmware from Intel Wireless Group..."
+[ -d linux-firmware ] || git clone git://git.kernel.org/pub/scm/linux/kernel/git/iwlwifi/linux-firmware.git --depth=1 || exit 1
 [ $? -eq 0 ] || exit 1
 
 echo "Synchronising repo with kernel and firmware..."
 echo
 
 while read -r device prefix kernel_max; do
-  sync_max_firmware "${device}" "${prefix}" "${kernel_max}"
+  [ -n "{device}" -a -n "${prefix}" -a -n "${kernel_max}" ] && sync_max_firmware "${device}" "${prefix}" "${kernel_max}"
 done <<< "$(get_kernel_max | sort -k1n)"
