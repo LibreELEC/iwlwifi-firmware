@@ -40,7 +40,7 @@ fi
 function get_kernel_max()
 {
   local filename device prefix kernel_max
-  local driver_path
+  local driver_path def_device
   
   driver_path=linux-${KERNEL}/drivers/net/wireless/intel/iwlwifi
   [ -d linux-${KERNEL}/drivers/net/wireless/intel/iwlwifi ] || driver_path=linux-${KERNEL}/drivers/net/wireless/iwlwifi
@@ -49,19 +49,16 @@ function get_kernel_max()
   [ -d ${driver_path}/cfg ] && driver_path+=/cfg
 
   while read -r filename; do
-    while read -r device; do
-      [ -n "${device}" ] || continue
-
-      device="${device:3}"
-      [ "${device:0:1}" == "_" ] && device="${device:1}"
-      device="${device%%_*}"
-
-      prefix="$(grep "#define IWL${device}_FW_PRE" ${filename} | awk '{ print $3 }' | sed 's/"//g')"
-      kernel_max="$(grep "#define IWL${device}_UCODE_API_MAX" ${filename} | awk '{ print $3 }')"
-      [ -n "${prefix}" -a -n "${kernel_max}" ] || continue
+    def_device="$(basename ${filename} .c)"
+    while read -r prefix; do
+      device="$(echo "${prefix}" | awk -F- '{ print $2 }')"
+      [ -z "${device}" ] && continue
+      kernel_max="$(grep "#define[[:space:]]*IWL${device}_UCODE_API_MAX" ${filename} | awk '{ print $3 }')"
+      [ -z "${kernel_max}" ] && kernel_max="$(grep "#define[[:space:]]*IWL${def_device}_UCODE_API_MAX" ${filename} | awk '{ print $3 }')"
+      [ -n "${kernel_max}" ] || continue
 
       echo "${device} ${prefix} ${kernel_max}"
-    done <<< "$(grep "#define IWL.*_UCODE_API_MAX" ${filename} | cut -d' ' -f2)"
+    done <<< "$(grep "#define[[:space:]]*IWL.*_FW_PRE[[:space:]]\".*\"$" ${filename} | awk '{ print $3 }' | sed 's/"//g')"
   done <<< "$(ls -1 ${driver_path}/*.c)"
 }
 
@@ -76,8 +73,8 @@ function get_firmwares()
       api="${firmware#${prefix}}"
       api="${api%\.ucode}"
       echo "${api}"
-    done <<< "$(ls -1 ${prefix}*.ucode)"
-  ) | sort -k1nr | tr '\n' ','
+    done <<< "$(ls -1 ${prefix}*.ucode 2>/dev/null)"
+  ) | sort -k1nr | tr '\n' ',' | grep -v "^,$"
 }
 
 function sync_max_firmware()
@@ -87,9 +84,11 @@ function sync_max_firmware()
   local thisrepo="$(get_firmwares ../firmware "${prefix}")"
   local firmware keepver md5old md5new
 
+  [ -z "${linux_fw}" -a -z "${thisrepo}" ] && return 0
+
   [ -n "${DEBUG}" ] && printf "DEBUG: %-6s %-15s kernel max=%-2s linux fw=%s this repo=%s\n" "${device}" "${prefix}" "${kernel_max}" "${linux_fw:0:-1}" "${thisrepo:0:-1}" >&2
 
-  printf "%-15s - kernel max is %2d, linux-firmware max is %2d, this repo max is %2d\n" "${prefix:0:-1}" ${kernel_max} ${linux_fw%%,*} ${thisrepo%%,*}
+  printf "%-25s - kernel max is %2d, linux-firmware max is %2d, this repo max is %2d\n" "${prefix:0:-1}" ${kernel_max} ${linux_fw%%,*} ${thisrepo%%,*}
 
   for firmware in ${linux_fw//,/ }; do
     if [ ${firmware} -le ${kernel_max} ]; then
