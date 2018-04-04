@@ -39,7 +39,7 @@ fi
 
 function get_kernel_max()
 {
-  local filename device prefix kernel_max
+  local filename device prefix kernel_max api_max
   local driver_path def_device
   
   driver_path=linux-${KERNEL}/drivers/net/wireless/intel/iwlwifi
@@ -53,7 +53,12 @@ function get_kernel_max()
     while read -r prefix; do
       device="$(echo "${prefix}" | awk -F- '{ print $2 }')"
       [ -z "${device}" ] && continue
-      kernel_max="$(grep "#define[[:space:]]*IWL${device}_UCODE_API_MAX" ${filename} | awk '{ print $3 }')"
+
+      api_max="$(grep "^MODULE_FIRMWARE(IWL${device}_MODULE_FIRMWARE(.*))" ${filename} | sed 's/[()]/ /g' | awk '$3 ~ /.*_UCODE_API_MAX$/ {print $3}')"
+
+      kernel_max=
+      [ -n "${api_max}"    ] && kernel_max="$(grep "#define[[:space:]]*${api_max}" ${filename} | awk '{ print $3 }')"
+      [ -z "${kernel_max}" ] && kernel_max="$(grep "#define[[:space:]]*IWL${device}_UCODE_API_MAX" ${filename} | awk '{ print $3 }')"
       [ -z "${kernel_max}" ] && kernel_max="$(grep "#define[[:space:]]*IWL${def_device}_UCODE_API_MAX" ${filename} | awk '{ print $3 }')"
       [ -n "${kernel_max}" ] || continue
 
