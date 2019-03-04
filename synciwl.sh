@@ -140,7 +140,7 @@ if [ ! -d linux-${KERNEL} ] ; then
       url="https://git.kernel.org/torvalds/t/linux-${KERNEL}.tar.gz"
     fi
   else
-    url="http://www.kernel.org/pub/linux/kernel/v4.x/linux-${KERNEL}.tar.xz"
+    url="http://www.kernel.org/pub/linux/kernel/v${KERNEL:0:1}.x/linux-${KERNEL}.tar.xz"
   fi
   if [[ ${url} =~ .*.gz ]]; then
     wget -q --show-progress "${url}" -O- | tar xzf -
