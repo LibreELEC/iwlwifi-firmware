@@ -60,10 +60,11 @@ function get_kernel_max()
       [ -n "${api_max}"    ] && kernel_max="$(grep "#define[[:space:]]*${api_max}" ${filename} | awk '{ print $3 }')"
       [ -z "${kernel_max}" ] && kernel_max="$(grep "#define[[:space:]]*IWL${device}_UCODE_API_MAX" ${filename} | awk '{ print $3 }')"
       [ -z "${kernel_max}" ] && kernel_max="$(grep "#define[[:space:]]*IWL${def_device}_UCODE_API_MAX" ${filename} | awk '{ print $3 }')"
+      [ -z "${kernel_max}" ] && kernel_max="$(grep "#define[[:space:]]*IWL_${def_device}_UCODE_API_MAX" ${filename} | awk '{ print $3 }')"
       [ -n "${kernel_max}" ] || continue
 
       echo "${device} ${prefix} ${kernel_max}"
-    done <<< "$(grep "#define[[:space:]]*IWL.*_FW_PRE[[:space:]]\".*\"$" ${filename} | awk '{ print $3 }' | sed 's/"//g')"
+    done <<< "$(grep "#define[[:space:]]*IWL.*_FW_PRE[[:space:]]*\".*\"$" ${filename} | awk '{ print $3 }' | sed 's/"//g')"
   done <<< "$(ls -1 ${driver_path}/*.c)"
 }
 
@@ -160,4 +161,4 @@ echo
 
 while read -r device prefix kernel_max; do
   [ -n "{device}" -a -n "${prefix}" -a -n "${kernel_max}" ] && sync_max_firmware "${device}" "${prefix}" "${kernel_max}"
-done <<< "$(get_kernel_max | sort -k1n)"
+done <<< "$(get_kernel_max | sort -u | sort -k1n)"
