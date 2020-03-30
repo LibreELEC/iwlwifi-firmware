@@ -1,5 +1,4 @@
 #!/bin/bash
-
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2017-present Team LibreELEC (https://libreelec.tv)
 
@@ -21,8 +20,11 @@ if [ -z "${KERNEL}" ]; then
   echo
   echo "  DEBUG=y   - enable debug output"
   echo "  DRYRUN=y  - don't update filesystem"
+  echo "  IPV4=y    - use only IPv4 for wget and git clone"
   exit 1
 fi
+
+[ -z "${IPV4}" ] && USEIPV4= || USEIPV4="-4"
 
 function get_kernel_max()
 {
@@ -131,16 +133,16 @@ if [ ! -d linux-${KERNEL} ] ; then
     url="http://www.kernel.org/pub/linux/kernel/v${KERNEL:0:1}.x/linux-${KERNEL}.tar.xz"
   fi
   if [[ ${url} =~ .*.gz ]]; then
-    wget -q --show-progress "${url}" -O- | tar xzf -
+    wget ${USEIPV4} -q --show-progress "${url}" -O- | tar xzf -
   else
-    wget -q --show-progress "${url}" -O- | tar xJf -
+    wget ${USEIPV4} -q --show-progress "${url}" -O- | tar xJf -
   fi
   [ $? -eq 0 ] || exit 1
 fi
 
 # get kernel firmware
 echo "Cloning latest linux-firmware from Intel Wireless Group..."
-[ -d linux-firmware ] || git clone git://git.kernel.org/pub/scm/linux/kernel/git/iwlwifi/linux-firmware.git --depth=1 || exit 1
+[ -d linux-firmware ] || git clone ${USEIPV4} git://git.kernel.org/pub/scm/linux/kernel/git/iwlwifi/linux-firmware.git --depth=1 || exit 1
 [ $? -eq 0 ] || exit 1
 
 echo "Synchronising repo with kernel and firmware..."
