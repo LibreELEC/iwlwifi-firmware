@@ -1,21 +1,7 @@
 #!/bin/bash
-################################################################################
-#      This file is part of LibreELEC - http://www.libreelec.tv
-#      Copyright (C) 2017 Team LibreELEC
-#
-#  LibreELEC is free software: you can redistribute it and/or modify
-#  it under the terms of the GNU General Public License as published by
-#  the Free Software Foundation, either version 2 of the License, or
-#  (at your option) any later version.
-#
-#  LibreELEC is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with LibreELEC.  If not, see <http://www.gnu.org/licenses/>.
-################################################################################
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright (C) 2017-present Team LibreELEC (https://libreelec.tv)
+
 TMPDIR=.unpack.tmp
 KERNEL=$1
 
@@ -34,8 +20,11 @@ if [ -z "${KERNEL}" ]; then
   echo
   echo "  DEBUG=y   - enable debug output"
   echo "  DRYRUN=y  - don't update filesystem"
+  echo "  IPV4=y    - use only IPv4 for wget and git clone"
   exit 1
 fi
+
+[ -z "${IPV4}" ] && USEIPV4= || USEIPV4="-4"
 
 function get_kernel_max()
 {
@@ -144,16 +133,16 @@ if [ ! -d linux-${KERNEL} ] ; then
     url="http://www.kernel.org/pub/linux/kernel/v${KERNEL:0:1}.x/linux-${KERNEL}.tar.xz"
   fi
   if [[ ${url} =~ .*.gz ]]; then
-    wget -q --show-progress "${url}" -O- | tar xzf -
+    wget ${USEIPV4} -q --show-progress "${url}" -O- | tar xzf -
   else
-    wget -q --show-progress "${url}" -O- | tar xJf -
+    wget ${USEIPV4} -q --show-progress "${url}" -O- | tar xJf -
   fi
   [ $? -eq 0 ] || exit 1
 fi
 
 # get kernel firmware
 echo "Cloning latest linux-firmware from Intel Wireless Group..."
-[ -d linux-firmware ] || git clone git://git.kernel.org/pub/scm/linux/kernel/git/iwlwifi/linux-firmware.git --depth=1 || exit 1
+[ -d linux-firmware ] || git clone ${USEIPV4} git://git.kernel.org/pub/scm/linux/kernel/git/iwlwifi/linux-firmware.git --depth=1 || exit 1
 [ $? -eq 0 ] || exit 1
 
 echo "Synchronising repo with kernel and firmware..."
