@@ -38,7 +38,7 @@ function get_kernel_max()
   [ -d ${driver_path}/cfg ] && driver_path+=/cfg
 
   while read -r filename; do
-    def_device="$(basename ${filename} .c)"
+    def_device="$(basename ${filename} .c | tr '[:lower:]' '[:upper:]')"
     while read -r prefix; do
       device="$(echo "${prefix}" | awk -F- '{ print $2 }')"
       [ -z "${device}" ] && continue
@@ -52,6 +52,8 @@ function get_kernel_max()
       [ -z "${kernel_max}" ] && kernel_max="$(grep "#define[[:space:]]*IWL_${def_device}_UCODE_API_MAX" ${filename} | awk '{ print $3 }')"
       [ -n "${kernel_max}" ] || continue
 
+      # since linux-6.5 the trailing dash was removed - add it back
+      [[ "${prefix}" != *- ]] && prefix="${prefix}-"
       echo "${device} ${prefix} ${kernel_max}"
     done <<< "$(grep "#define[[:space:]]*IWL.*_FW_PRE[[:space:]]*\".*\"$" ${filename} | awk '{ print $3 }' | sed 's/"//g')"
   done <<< "$(ls -1 ${driver_path}/*.c)"
