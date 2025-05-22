@@ -20,7 +20,7 @@ if [ -z "${KERNEL}" ]; then
   echo
   echo "  DEBUG=y   - enable debug output"
   echo "  DRYRUN=y  - don't update filesystem"
-  echo "  IPV4=y    - use only IPv4 for wget and git clone"
+  echo "  IPV4=y    - use only IPv4 for curl and git clone"
   exit 1
 fi
 
@@ -135,9 +135,9 @@ if [ ! -d linux-${KERNEL} ] ; then
     url="http://www.kernel.org/pub/linux/kernel/v${KERNEL:0:1}.x/linux-${KERNEL}.tar.xz"
   fi
   if [[ ${url} =~ .*.gz ]]; then
-    wget ${USEIPV4} -q --show-progress "${url}" -O- | tar xzf -
+    curl ${USEIPV4} --location --progress-bar "${url}" | tar xzf -
   else
-    wget ${USEIPV4} -q --show-progress "${url}" -O- | tar xJf -
+    curl ${USEIPV4} --location --progress-bar "${url}" | tar xJf -
   fi
   [ $? -eq 0 ] || exit 1
 fi
