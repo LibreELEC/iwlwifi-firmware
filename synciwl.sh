@@ -152,4 +152,4 @@ echo
 
 while read -r device prefix kernel_max; do
   [ -n "{device}" -a -n "${prefix}" -a -n "${kernel_max}" ] && sync_max_firmware "${device}" "${prefix}" "${kernel_max}"
-done <<< "$(get_kernel_max | sort -u | sort -k1n)"
+done <<< "$(get_kernel_max | sed -e 's/bz-a0/bz-b0/' | sort -u | sort -k1n)"
