@@ -77,7 +77,7 @@ function get_firmwares()
 function sync_max_firmware()
 {
   local device="$1" prefix="$2" kernel_max="$3"
-  local linux_fw="$(get_firmwares linux-firmware "${prefix}")"
+  local linux_fw="$(get_firmwares linux-firmware/intel/iwlwifi "${prefix}")"
   local thisrepo="$(get_firmwares ../firmware "${prefix}")"
   local firmware keepver md5old md5new
 
@@ -92,13 +92,13 @@ function sync_max_firmware()
       keepver=${firmware}
       if [ ! -f ../firmware/${prefix}${firmware}.ucode ]; then
         echo "  Adding new version  : ${prefix}${firmware}.ucode"
-        [ -z "${DRYRUN}" ] && cp linux-firmware/${prefix}${firmware}.ucode ../firmware
+        [ -z "${DRYRUN}" ] && cp linux-firmware/intel/iwlwifi/${prefix}${firmware}.ucode ../firmware
       else
         md5old="$(md5sum ../firmware/${prefix}${firmware}.ucode | awk '{print $1}')"
-        md5new="$(md5sum linux-firmware/${prefix}${firmware}.ucode | awk '{print $1}')"
+        md5new="$(md5sum linux-firmware/intel/iwlwifi/${prefix}${firmware}.ucode | awk '{print $1}')"
         if [ "${md5old}" != "${md5new}" ]; then
           echo "  Updating existing version: ${prefix}${firmware}.ucode"
-          [ -z "${DRYRUN}" ] && cp linux-firmware/${prefix}${firmware}.ucode ../firmware
+          [ -z "${DRYRUN}" ] && cp linux-firmware/intel/iwlwifi/${prefix}${firmware}.ucode ../firmware
         fi
       fi
       break
