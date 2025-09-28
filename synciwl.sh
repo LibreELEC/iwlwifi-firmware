@@ -38,7 +38,7 @@ function get_kernel_max()
   [ -d ${driver_path}/cfg ] && driver_path+=/cfg
 
   while read -r filename; do
-    def_device="$(basename ${filename} .c | tr '[:lower:]' '[:upper:]')"
+    def_device="$(basename ${filename} .c | sed 's/rf-//' | tr '[:lower:]' '[:upper:]')"
     while read -r prefix; do
       device="$(echo "${prefix}" | awk -F- '{ print $2 }')"
       [ -z "${device}" ] && continue
