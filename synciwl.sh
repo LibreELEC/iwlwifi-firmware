@@ -50,6 +50,8 @@ function get_kernel_max()
       [ -z "${kernel_max}" ] && kernel_max="$(grep "#define[[:space:]]*IWL${device}_UCODE_API_MAX" ${filename} | awk '{ print $3 }')"
       [ -z "${kernel_max}" ] && kernel_max="$(grep "#define[[:space:]]*IWL${def_device}_UCODE_API_MAX" ${filename} | awk '{ print $3 }')"
       [ -z "${kernel_max}" ] && kernel_max="$(grep "#define[[:space:]]*IWL_${def_device}_UCODE_API_MAX" ${filename} | awk '{ print $3 }')"
+      # required to add 3 to CORE_MAX since linux-6.18
+      [ -z "${kernel_max}" ] && kernel_max="$(grep "#define[[:space:]]*IWL_${def_device}_UCODE_CORE_MAX" ${filename} | awk '{ print $3 + 3 }')"
       [ -n "${kernel_max}" ] || continue
 
       # since linux-6.5 the trailing dash was removed - add it back
