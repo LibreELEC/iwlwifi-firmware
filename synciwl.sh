@@ -38,20 +38,28 @@ function get_kernel_max()
   [ -d ${driver_path}/cfg ] && driver_path+=/cfg
 
   while read -r filename; do
+    [ -n "${DEBUG}" ] && printf "DEBUG: reading filename %s\n" "${filename}" >&2
     def_device="$(basename ${filename} .c | sed 's/rf-//' | tr '[:lower:]' '[:upper:]')"
     while read -r prefix; do
       device="$(echo "${prefix}" | awk -F- '{ print $2 }')"
+      [ -n "${DEBUG}" ] && printf "DEBUG: filename %s def_device %s prefix %s device %s\n" "${filename}" "${def_device}" "${prefix}" "${device}" >&2
       [ -z "${device}" ] && continue
 
       api_max="$(grep "^MODULE_FIRMWARE(IWL${device}_MODULE_FIRMWARE(.*))" ${filename} | sed 's/[()]/ /g' | awk '$3 ~ /.*_UCODE_API_MAX$/ {print $3}')"
 
+      [ -n "${DEBUG}" ] && printf "DEBUG: filename %s def_device %s prefix %s device %s api_max %s\n" "${filename}" "${def_device}" "${prefix}" "${device}" "${api_max}" >&2
       kernel_max=
       [ -n "${api_max}"    ] && kernel_max="$(grep "#define[[:space:]]*${api_max}" ${filename} | awk '{ print $3 }')"
+      [ -n "${DEBUG}" ] && printf "DEBUG: filename %s def_device %s prefix %s device %s api_max %s kernel_max %s\n" "${filename}" "${def_device}" "${prefix}" "${device}" "${api_max}" "${kernel_max}" >&2
       [ -z "${kernel_max}" ] && kernel_max="$(grep "#define[[:space:]]*IWL${device}_UCODE_API_MAX" ${filename} | awk '{ print $3 }')"
+      [ -n "${DEBUG}" ] && printf "DEBUG: filename %s def_device %s prefix %s device %s api_max %s kernel_max %s\n" "${filename}" "${def_device}" "${prefix}" "${device}" "${api_max}" "${kernel_max}" >&2
       [ -z "${kernel_max}" ] && kernel_max="$(grep "#define[[:space:]]*IWL${def_device}_UCODE_API_MAX" ${filename} | awk '{ print $3 }')"
+      [ -n "${DEBUG}" ] && printf "DEBUG: filename %s def_device %s prefix %s device %s api_max %s kernel_max %s\n" "${filename}" "${def_device}" "${prefix}" "${device}" "${api_max}" "${kernel_max}" >&2
       [ -z "${kernel_max}" ] && kernel_max="$(grep "#define[[:space:]]*IWL_${def_device}_UCODE_API_MAX" ${filename} | awk '{ print $3 }')"
+      [ -n "${DEBUG}" ] && printf "DEBUG: filename %s def_device %s prefix %s device %s api_max %s kernel_max %s\n" "${filename}" "${def_device}" "${prefix}" "${device}" "${api_max}" "${kernel_max}" >&2
       # required to add 3 to CORE_MAX since linux-6.18
       [ -z "${kernel_max}" ] && kernel_max="$(grep "#define[[:space:]]*IWL_${def_device}_UCODE_CORE_MAX" ${filename} | awk '{ print $3 + 3 }')"
+      [ -n "${DEBUG}" ] && printf "DEBUG: filename %s def_device %s prefix %s device %s api_max %s kernel_max %s\n" "${filename}" "${def_device}" "${prefix}" "${device}" "${api_max}" "${kernel_max}" >&2
       [ -n "${kernel_max}" ] || continue
 
       # since linux-6.5 the trailing dash was removed - add it back
