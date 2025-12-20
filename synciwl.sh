@@ -79,6 +79,7 @@ function get_firmwares()
     while read -r firmware; do
       api="${firmware#${prefix}}"
       api="${api%\.ucode}"
+      [[ ${api} =~ ^c[0-9]+ ]] && api=$((${api#c} + 3))
       echo "${api}"
     done <<< "$(ls -1 ${prefix}*.ucode 2>/dev/null)"
   ) | sort -k1nr | tr '\n' ',' | grep -v "^,$"
@@ -100,9 +101,23 @@ function sync_max_firmware()
   for firmware in ${linux_fw//,/ }; do
     if [ ${firmware} -le ${kernel_max} ]; then
       keepver=${firmware}
-      if [ ! -f ../firmware/${prefix}${firmware}.ucode ]; then
-        echo "  Adding new version  : ${prefix}${firmware}.ucode"
-        [ -z "${DRYRUN}" ] && cp linux-firmware/intel/iwlwifi/${prefix}${firmware}.ucode ../firmware
+      coreversion="c$((${firmware}-3))"
+      if [ ! -f ../firmware/${prefix}${coreversion}.ucode ] &&
+         [ ! -f ../firmware/${prefix}${firmware}.ucode ]; then
+         if [ -f linux-firmware/intel/iwlwifi/${prefix}${coreversion}.ucode ]; then
+            echo "  Adding new version  : ${prefix}${coreversion}.ucode"
+            [ -z "${DRYRUN}" ] && cp linux-firmware/intel/iwlwifi/${prefix}${coreversion}.ucode ../firmware
+         else
+            echo "  Adding new version  : ${prefix}${firmware}.ucode"
+            [ -z "${DRYRUN}" ] && cp linux-firmware/intel/iwlwifi/${prefix}${firmware}.ucode ../firmware
+         fi
+      elif [ -f ../firmware/${prefix}${coreversion}.ucode ]; then
+        md5old="$(md5sum ../firmware/${prefix}${coreversion}.ucode | awk '{print $1}')"
+        md5new="$(md5sum linux-firmware/intel/iwlwifi/${prefix}${coreversion}.ucode | awk '{print $1}')"
+        if [ "${md5old}" != "${md5new}" ]; then
+          echo "  Updating existing version: ${prefix}${coreversion}.ucode"
+          [ -z "${DRYRUN}" ] && cp linux-firmware/intel/iwlwifi/${prefix}${coreversion}.ucode ../firmware
+        fi
       else
         md5old="$(md5sum ../firmware/${prefix}${firmware}.ucode | awk '{print $1}')"
         md5new="$(md5sum linux-firmware/intel/iwlwifi/${prefix}${firmware}.ucode | awk '{print $1}')"
@@ -118,12 +133,23 @@ function sync_max_firmware()
   for firmware in ${thisrepo//,/ }; do
     [ "${firmware}" == "${keepver}" ] && continue
 
+    coreversion="c$((${firmware}-3))"
     if [ ${firmware} -gt ${kernel_max} ]; then
-      echo "  Removing incompatible version: ${prefix}${firmware}.ucode"
-      [ -z "${DRYRUN}" ] && rm -f ../firmware/${prefix}${firmware}.ucode
+      if [ -f ../firmware/${prefix}${coreversion}.ucode ]; then
+        echo "  Removing incompatible version: ${prefix}${coreversion}.ucode"
+        [ -z "${DRYRUN}" ] && rm -f ../firmware/${prefix}${coreversion}.ucode
+      else
+        echo "  Removing incompatible version: ${prefix}${firmware}.ucode"
+        [ -z "${DRYRUN}" ] && rm -f ../firmware/${prefix}${firmware}.ucode
+      fi
     elif [ -n "${keepver}" ]; then
-      echo "  Removing old version: ${prefix}${firmware}.ucode"
-      [ -z "${DRYRUN}" ] && rm -f ../firmware/${prefix}${firmware}.ucode
+      if [ -f ../firmware/${prefix}${coreversion}.ucode ]; then
+        echo "  Removing old version: ${prefix}${coreversion}.ucode"
+        [ -z "${DRYRUN}" ] && rm -f ../firmware/${prefix}${coreversion}.ucode
+      else
+        echo "  Removing old version: ${prefix}${firmware}.ucode"
+        [ -z "${DRYRUN}" ] && rm -f ../firmware/${prefix}${firmware}.ucode
+      fi
     else
       echo "  Unable to identify suitable max version - keeping existing firmware files"
     fi
@@ -158,6 +184,8 @@ echo "Cloning latest linux-firmware from Intel Wireless Group..."
 [ $? -eq 0 ] || exit 1
 
 echo "Synchronising repo with kernel and firmware..."
+echo "Firmware versions are shown as API (not CORE), firmware files since API 104 are in the firmware as c101."
+echo "  API = CORE+3. e.g. 104 = c101 + 3"
 echo
 
 while read -r device prefix kernel_max; do
