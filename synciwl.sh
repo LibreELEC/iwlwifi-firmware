@@ -1,9 +1,10 @@
- #!/bin/bash
+#!/bin/bash
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2017-present Team LibreELEC (https://libreelec.tv)
 
 TMPDIR=.unpack.tmp
 KERNEL=$1
+CHANGED_FILES=()
 
 # API numbering is Core+3.
 # Intel states:
@@ -126,12 +127,14 @@ function sync_pnvm()
       if [ ! -f "${have}" ]; then
         echo "  Adding new PNVM file: ${pnvm_name}"
         [ -z "${DRYRUN}" ] && cp "${src}" "${have}"
+        CHANGED_FILES+=("intel/iwlwifi/${pnvm_name}")
       else
         md5old="$(md5sum "${have}" | awk '{print $1}')"
         md5new="$(md5sum "${src}" | awk '{print $1}')"
         if [ "${md5old}" != "${md5new}" ]; then
           echo "  Updating existing PNVM file: ${pnvm_name}"
           [ -z "${DRYRUN}" ] && cp "${src}" "${have}"
+          CHANGED_FILES+=("intel/iwlwifi/${pnvm_name}")
         fi
       fi
     fi
@@ -166,9 +169,11 @@ function sync_max_firmware()
          if [ -f linux-firmware/intel/iwlwifi/${prefix}${coreversion}.ucode ]; then
             echo "  Adding new version  : ${prefix}${coreversion}.ucode"
             [ -z "${DRYRUN}" ] && cp linux-firmware/intel/iwlwifi/${prefix}${coreversion}.ucode ../firmware
+            CHANGED_FILES+=("intel/iwlwifi/${prefix}${coreversion}.ucode")
          else
             echo "  Adding new version  : ${prefix}${firmware}.ucode"
             [ -z "${DRYRUN}" ] && cp linux-firmware/intel/iwlwifi/${prefix}${firmware}.ucode ../firmware
+            CHANGED_FILES+=("intel/iwlwifi/${prefix}${firmware}.ucode")
          fi
       elif [ -f ../firmware/${prefix}${coreversion}.ucode ]; then
         md5old="$(md5sum ../firmware/${prefix}${coreversion}.ucode | awk '{print $1}')"
@@ -176,6 +181,7 @@ function sync_max_firmware()
         if [ "${md5old}" != "${md5new}" ]; then
           echo "  Updating existing version: ${prefix}${coreversion}.ucode"
           [ -z "${DRYRUN}" ] && cp linux-firmware/intel/iwlwifi/${prefix}${coreversion}.ucode ../firmware
+          CHANGED_FILES+=("intel/iwlwifi/${prefix}${coreversion}.ucode")
         fi
       else
         md5old="$(md5sum ../firmware/${prefix}${firmware}.ucode | awk '{print $1}')"
@@ -183,6 +189,7 @@ function sync_max_firmware()
         if [ "${md5old}" != "${md5new}" ]; then
           echo "  Updating existing version: ${prefix}${firmware}.ucode"
           [ -z "${DRYRUN}" ] && cp linux-firmware/intel/iwlwifi/${prefix}${firmware}.ucode ../firmware
+          CHANGED_FILES+=("intel/iwlwifi/${prefix}${firmware}.ucode")
         fi
       fi
       break
@@ -244,14 +251,14 @@ if [ -d linux-firmware ]; then
   echo "Updating linux-firmware repository..."
   (
     cd linux-firmware &&
-    git fetch ${USEIPV4} --depth=1 origin &&
+    git fetch ${USEIPV4} origin &&
     git reset --hard origin/HEAD
   ) || exit 1
 else
   echo "Cloning linux-firmware repository..."
   git clone ${USEIPV4} \
     https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git \
-    --depth=1 linux-firmware || exit 1
+    linux-firmware || exit 1
 fi
 
 echo "Synchronising repo with kernel and firmware..."
@@ -262,3 +269,27 @@ echo
 while read -r device prefix kernel_max; do
   [ -n "{device}" -a -n "${prefix}" -a -n "${kernel_max}" ] && sync_max_firmware "${device}" "${prefix}" "${kernel_max}"
 done <<< "$(get_kernel_max | sed -e 's/bz-a0/bz-b0/' -e 's/wh-a0/wh-b0/' | sort -u | sort -k1n)"
+
+if [ ${#CHANGED_FILES[@]} -gt 0 ]; then
+  echo
+  echo "Upstream linux-firmware commits:"
+  echo
+
+  {
+    printf '%s\n' "${CHANGED_FILES[@]}" | sort -u | while read -r file; do
+      git -C linux-firmware log --no-merges -1 \
+        --format='%H|%h %s' -- "${file}" |
+      awk -F'|' -v file="$(basename "${file}")" '{ print $1 "|" $2 "|" file }'
+    done
+  } | sort | awk -F'|' '
+    $1 != last {
+      if (NR > 1)
+        print ""
+      print $2
+      last = $1
+    }
+    {
+      print "    " $3
+    }
+  '
+fi
