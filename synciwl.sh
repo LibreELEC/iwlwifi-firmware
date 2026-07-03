@@ -1,9 +1,36 @@
-#!/bin/bash
+ #!/bin/bash
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2017-present Team LibreELEC (https://libreelec.tv)
 
 TMPDIR=.unpack.tmp
 KERNEL=$1
+
+# API numbering is Core+3.
+# Intel states:
+#
+#   "Since core 97, pnvm files are no longer needed for those devices."
+#
+# This applies only to the BZ and GL firmware families introduced with
+# core97/core98 firmware. Their PNVM data is embedded in the .ucode image,
+# so standalone .pnvm files are no longer required.
+#
+# Other device families (TY, SO, MA, etc.) still require standalone PNVM
+# files unless Intel documents otherwise.
+PNVM_EMBED_API_MIN=100
+
+function pnvm_embedded()
+{
+  local prefix="$1" api="$2"
+
+  case "${prefix}" in
+    iwlwifi-bz-*|iwlwifi-gl-*)
+      [ "${api}" -ge "${PNVM_EMBED_API_MIN}" ]
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
 
 if [ -z "${KERNEL}" ]; then
   echo "Script to synchronise this repo with the most suitable linux-firmware file for the specified kernel."
@@ -85,6 +112,38 @@ function get_firmwares()
   ) | sort -k1nr | tr '\n' ',' | grep -v "^,$"
 }
 
+function sync_pnvm()
+{
+  local prefix="$1" keepver="$2"
+  local pnvm_name="${prefix%-}.pnvm"
+  local have="../firmware/${pnvm_name}"
+  local src="linux-firmware/intel/iwlwifi/${pnvm_name}"
+  local md5old md5new
+
+  if [ -n "${keepver}" ] && ! pnvm_embedded "${prefix%-}" "${keepver}"; then
+    # Standalone PNVM required - keep it in sync.
+    if [ -f "${src}" ]; then
+      if [ ! -f "${have}" ]; then
+        echo "  Adding new PNVM file: ${pnvm_name}"
+        [ -z "${DRYRUN}" ] && cp "${src}" "${have}"
+      else
+        md5old="$(md5sum "${have}" | awk '{print $1}')"
+        md5new="$(md5sum "${src}" | awk '{print $1}')"
+        if [ "${md5old}" != "${md5new}" ]; then
+          echo "  Updating existing PNVM file: ${pnvm_name}"
+          [ -z "${DRYRUN}" ] && cp "${src}" "${have}"
+        fi
+      fi
+    fi
+  else
+    # PNVM is embedded in the firmware image.
+    if [ -f "${have}" ]; then
+      echo "  Removing obsolete PNVM file (embedded in firmware): ${pnvm_name}"
+      [ -z "${DRYRUN}" ] && rm -f "${have}"
+    fi
+  fi
+}
+
 function sync_max_firmware()
 {
   local device="$1" prefix="$2" kernel_max="$3"
@@ -154,6 +213,8 @@ function sync_max_firmware()
       echo "  Unable to identify suitable max version - keeping existing firmware files"
     fi
   done
+
+  sync_pnvm "${prefix}" "${keepver}"
 }
 
 mkdir -p $TMPDIR || exit
