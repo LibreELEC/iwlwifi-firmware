@@ -239,10 +239,20 @@ if [ ! -d linux-${KERNEL} ] ; then
   [ $? -eq 0 ] || exit 1
 fi
 
-# get kernel firmware
-echo "Cloning latest linux-firmware from Intel Wireless Group..."
-[ -d linux-firmware ] || git clone ${USEIPV4} git://git.kernel.org/pub/scm/linux/kernel/git/iwlwifi/linux-firmware.git --depth=1 || exit 1
-[ $? -eq 0 ] || exit 1
+# clone/update linux-firmware
+if [ -d linux-firmware ]; then
+  echo "Updating linux-firmware repository..."
+  (
+    cd linux-firmware &&
+    git fetch ${USEIPV4} --depth=1 origin &&
+    git reset --hard origin/HEAD
+  ) || exit 1
+else
+  echo "Cloning linux-firmware repository..."
+  git clone ${USEIPV4} \
+    https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git \
+    --depth=1 linux-firmware || exit 1
+fi
 
 echo "Synchronising repo with kernel and firmware..."
 echo "Firmware versions are shown as API (not CORE), firmware files since API 104 are in the firmware as c101."
