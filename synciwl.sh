@@ -4,19 +4,29 @@
 
 TMPDIR=.unpack.tmp
 KERNEL=$1
-CHANGED_FILES=()
+CHANGED_FILES=()   # linux-firmware-relative paths, used for "Upstream commits" lookup
+REPO_CHANGES=()    # "A:"/"M:"/"D:" + repo-relative path, used for git add/commit
+
+# How much linux-firmware history to keep locally. This is re-fetched fresh
+# each run (git fetch --depth=N), not accumulated, so repo size stays bounded
+# regardless of how often you run this script. It needs to be deep enough to
+# find the commit that last touched an infrequently-changed file; if it's
+# not deep enough the commit-message lookup falls back to "unknown" rather
+# than failing.
+HISTDEPTH=${HISTDEPTH:-500}
 
 # API numbering is Core+3.
-# Intel states:
 #
-#   "Since core 97, pnvm files are no longer needed for those devices."
+# Standalone PNVM files are no longer required for the BZ and GL firmware
+# families from Core 97 (API 100) onwards, as PNVM data is embedded in the
+# firmware image. Documented upstream in:
 #
-# This applies only to the BZ and GL firmware families introduced with
-# core97/core98 firmware. Their PNVM data is embedded in the .ucode image,
-# so standalone .pnvm files are no longer required.
+#   b5b78dda06f9 ("iwlwifi: add Bz/gl FW for core97-84 release")
+#   9440754a997a ("iwlwifi: add Bz/Fm and gl FW for core98-161 release")
 #
-# Other device families (TY, SO, MA, etc.) still require standalone PNVM
-# files unless Intel documents otherwise.
+# Both state: "Since core 97, pnvm files are no longer needed for those
+# devices." This applies only to BZ/GL - other Intel firmware families
+# (TY, SO, MA, etc.) still require standalone PNVM files.
 PNVM_EMBED_API_MIN=100
 
 function pnvm_embedded()
@@ -46,9 +56,11 @@ if [ -z "${KERNEL}" ]; then
   echo "  Example: $0 4.11-rc2"
   echo "  Example: DEBUG=y $0 4.11-rc2"
   echo
-  echo "  DEBUG=y   - enable debug output"
-  echo "  DRYRUN=y  - don't update filesystem"
-  echo "  IPV4=y    - use only IPv4 for curl and git clone"
+  echo "  DEBUG=y        - enable debug output"
+  echo "  DRYRUN=y       - don't update filesystem, don't stage or commit"
+  echo "  NOCOMMIT=y     - update filesystem but leave changes for manual add/commit"
+  echo "  IPV4=y         - use only IPv4 for curl and git clone"
+  echo "  HISTDEPTH=N    - linux-firmware history depth to fetch (default 500)"
   exit 1
 fi
 
@@ -58,7 +70,7 @@ function get_kernel_max()
 {
   local filename device prefix kernel_max api_max
   local driver_path def_device
-  
+
   driver_path=linux-${KERNEL}/drivers/net/wireless/intel/iwlwifi
   [ -d linux-${KERNEL}/drivers/net/wireless/intel/iwlwifi ] || driver_path=linux-${KERNEL}/drivers/net/wireless/iwlwifi
 
@@ -128,6 +140,7 @@ function sync_pnvm()
         echo "  Adding new PNVM file: ${pnvm_name}"
         [ -z "${DRYRUN}" ] && cp "${src}" "${have}"
         CHANGED_FILES+=("intel/iwlwifi/${pnvm_name}")
+        REPO_CHANGES+=("A:firmware/${pnvm_name}")
       else
         md5old="$(md5sum "${have}" | awk '{print $1}')"
         md5new="$(md5sum "${src}" | awk '{print $1}')"
@@ -135,6 +148,7 @@ function sync_pnvm()
           echo "  Updating existing PNVM file: ${pnvm_name}"
           [ -z "${DRYRUN}" ] && cp "${src}" "${have}"
           CHANGED_FILES+=("intel/iwlwifi/${pnvm_name}")
+          REPO_CHANGES+=("M:firmware/${pnvm_name}")
         fi
       fi
     fi
@@ -143,6 +157,7 @@ function sync_pnvm()
     if [ -f "${have}" ]; then
       echo "  Removing obsolete PNVM file (embedded in firmware): ${pnvm_name}"
       [ -z "${DRYRUN}" ] && rm -f "${have}"
+      REPO_CHANGES+=("D:firmware/${pnvm_name}")
     fi
   fi
 }
@@ -170,10 +185,12 @@ function sync_max_firmware()
             echo "  Adding new version  : ${prefix}${coreversion}.ucode"
             [ -z "${DRYRUN}" ] && cp linux-firmware/intel/iwlwifi/${prefix}${coreversion}.ucode ../firmware
             CHANGED_FILES+=("intel/iwlwifi/${prefix}${coreversion}.ucode")
+            REPO_CHANGES+=("A:firmware/${prefix}${coreversion}.ucode")
          else
             echo "  Adding new version  : ${prefix}${firmware}.ucode"
             [ -z "${DRYRUN}" ] && cp linux-firmware/intel/iwlwifi/${prefix}${firmware}.ucode ../firmware
             CHANGED_FILES+=("intel/iwlwifi/${prefix}${firmware}.ucode")
+            REPO_CHANGES+=("A:firmware/${prefix}${firmware}.ucode")
          fi
       elif [ -f ../firmware/${prefix}${coreversion}.ucode ]; then
         md5old="$(md5sum ../firmware/${prefix}${coreversion}.ucode | awk '{print $1}')"
@@ -182,6 +199,7 @@ function sync_max_firmware()
           echo "  Updating existing version: ${prefix}${coreversion}.ucode"
           [ -z "${DRYRUN}" ] && cp linux-firmware/intel/iwlwifi/${prefix}${coreversion}.ucode ../firmware
           CHANGED_FILES+=("intel/iwlwifi/${prefix}${coreversion}.ucode")
+          REPO_CHANGES+=("M:firmware/${prefix}${coreversion}.ucode")
         fi
       else
         md5old="$(md5sum ../firmware/${prefix}${firmware}.ucode | awk '{print $1}')"
@@ -190,6 +208,7 @@ function sync_max_firmware()
           echo "  Updating existing version: ${prefix}${firmware}.ucode"
           [ -z "${DRYRUN}" ] && cp linux-firmware/intel/iwlwifi/${prefix}${firmware}.ucode ../firmware
           CHANGED_FILES+=("intel/iwlwifi/${prefix}${firmware}.ucode")
+          REPO_CHANGES+=("M:firmware/${prefix}${firmware}.ucode")
         fi
       fi
       break
@@ -204,17 +223,21 @@ function sync_max_firmware()
       if [ -f ../firmware/${prefix}${coreversion}.ucode ]; then
         echo "  Removing incompatible version: ${prefix}${coreversion}.ucode"
         [ -z "${DRYRUN}" ] && rm -f ../firmware/${prefix}${coreversion}.ucode
+        REPO_CHANGES+=("D:firmware/${prefix}${coreversion}.ucode")
       else
         echo "  Removing incompatible version: ${prefix}${firmware}.ucode"
         [ -z "${DRYRUN}" ] && rm -f ../firmware/${prefix}${firmware}.ucode
+        REPO_CHANGES+=("D:firmware/${prefix}${firmware}.ucode")
       fi
     elif [ -n "${keepver}" ]; then
       if [ -f ../firmware/${prefix}${coreversion}.ucode ]; then
         echo "  Removing old version: ${prefix}${coreversion}.ucode"
         [ -z "${DRYRUN}" ] && rm -f ../firmware/${prefix}${coreversion}.ucode
+        REPO_CHANGES+=("D:firmware/${prefix}${coreversion}.ucode")
       else
         echo "  Removing old version: ${prefix}${firmware}.ucode"
         [ -z "${DRYRUN}" ] && rm -f ../firmware/${prefix}${firmware}.ucode
+        REPO_CHANGES+=("D:firmware/${prefix}${firmware}.ucode")
       fi
     else
       echo "  Unable to identify suitable max version - keeping existing firmware files"
@@ -247,16 +270,19 @@ if [ ! -d linux-${KERNEL} ] ; then
 fi
 
 # clone/update linux-firmware
+# Re-fetch a bounded window of history each run (--depth=N re-shallows to
+# the latest N commits from the new tip) rather than deepening cumulatively,
+# so the checkout size stays roughly constant no matter how often this runs.
 if [ -d linux-firmware ]; then
-  echo "Updating linux-firmware repository..."
+  echo "Updating linux-firmware repository (last ${HISTDEPTH} commits)..."
   (
     cd linux-firmware &&
-    git fetch ${USEIPV4} origin &&
+    git fetch ${USEIPV4} --depth="${HISTDEPTH}" origin &&
     git reset --hard origin/HEAD
   ) || exit 1
 else
-  echo "Cloning linux-firmware repository..."
-  git clone ${USEIPV4} \
+  echo "Cloning linux-firmware repository (last ${HISTDEPTH} commits)..."
+  git clone ${USEIPV4} --depth="${HISTDEPTH}" \
     https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git \
     linux-firmware || exit 1
 fi
@@ -270,26 +296,60 @@ while read -r device prefix kernel_max; do
   [ -n "{device}" -a -n "${prefix}" -a -n "${kernel_max}" ] && sync_max_firmware "${device}" "${prefix}" "${kernel_max}"
 done <<< "$(get_kernel_max | sed -e 's/bz-a0/bz-b0/' -e 's/wh-a0/wh-b0/' | sort -u | sort -k1n)"
 
+commit_body=""
 if [ ${#CHANGED_FILES[@]} -gt 0 ]; then
+  commit_body=$(
+    printf '%s\n' "${CHANGED_FILES[@]}" | sort -u | while read -r file; do
+      log_line="$(git -C linux-firmware log --no-merges -1 --format='%H|%h %s' -- "${file}")"
+      if [ -z "${log_line}" ]; then
+        echo "unknown|unknown (older than ${HISTDEPTH}-commit history window)|$(basename "${file}")"
+      else
+        awk -F'|' -v file="$(basename "${file}")" '{ print $1 "|" $2 "|" file }' <<< "${log_line}"
+      fi
+    done | sort | awk -F'|' '
+      $1 != last {
+        if (NR > 1)
+          print ""
+        print $2
+        last = $1
+      }
+      {
+        print "    " $3
+      }
+    '
+  )
   echo
   echo "Upstream linux-firmware commits:"
   echo
+  echo "${commit_body}"
+fi
 
-  {
-    printf '%s\n' "${CHANGED_FILES[@]}" | sort -u | while read -r file; do
-      git -C linux-firmware log --no-merges -1 \
-        --format='%H|%h %s' -- "${file}" |
-      awk -F'|' -v file="$(basename "${file}")" '{ print $1 "|" $2 "|" file }'
+if [ ${#REPO_CHANGES[@]} -gt 0 ]; then
+  added="$(printf '%s\n' "${REPO_CHANGES[@]}" | grep -c '^A:')"
+  modified="$(printf '%s\n' "${REPO_CHANGES[@]}" | grep -c '^M:')"
+  removed="$(printf '%s\n' "${REPO_CHANGES[@]}" | grep -c '^D:')"
+
+  if [ -n "${DRYRUN}" ]; then
+    echo
+    echo "DRYRUN set - not staging or committing changes."
+  elif [ -n "${NOCOMMIT}" ]; then
+    echo
+    echo "NOCOMMIT set - changes left in the working tree for manual add/commit."
+  else
+    echo
+    echo "Staging changes for commit (added ${added}, updated ${modified}, removed ${removed})..."
+    for entry in "${REPO_CHANGES[@]}"; do
+      git -C .. add -- "${entry#*:}"
     done
-  } | sort | awk -F'|' '
-    $1 != last {
-      if (NR > 1)
-        print ""
-      print $2
-      last = $1
-    }
-    {
-      print "    " $3
-    }
-  '
+
+    fw_commit="$(git -C linux-firmware rev-parse --short HEAD)"
+    subject="iwlwifi-firmware: sync with linux ${KERNEL} / linux-firmware ${fw_commit}"
+
+    if [ -n "${commit_body}" ]; then
+      git -C .. commit -m "${subject}" -m "${commit_body}"
+    else
+      git -C .. commit -m "${subject}"
+    fi
+    echo "Committed as $(git -C .. rev-parse --short HEAD)."
+  fi
 fi
